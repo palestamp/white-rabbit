@@ -15,11 +15,25 @@
 #define SLOTS_SIZE (1 << SLOTS)
 #define SLOTS_MASK (SLOTS_SIZE - 1)
 
-#define MIN_TICK_INTERVAL 1e3
+#define MIN_TICK_INTERVAL 1e3  // 1mcs
 
+typedef enum time_resolution { MINUTE, SECOND, MILLISECOND, MICROSECOND } tr_e;
+
+int64_t to_micro(int64_t v, tr_e res) {
+  switch (res) {
+    case MICROSECOND:
+      return v;
+    case MILLISECOND:
+      return v * 1e3;
+    case SECOND:
+      return v * 1e6;
+    case MINUTE:
+      return v * 1e6 * 60;
+  }
+}
 
 int64_t to_micros(struct timespec t) {
-  return t.tv_sec * 1e6 + t.tv_nsec / 1e6;
+  return t.tv_sec * 1e6 + t.tv_nsec/1e3;
 }
 
 int64_t get_current_time() {
