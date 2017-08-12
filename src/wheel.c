@@ -33,7 +33,7 @@ int64_t to_micro(int64_t v, tr_e res) {
 }
 
 int64_t to_micros(struct timespec t) {
-  return t.tv_sec * 1e6 + t.tv_nsec/1e3;
+  return t.tv_sec * 1e6 + t.tv_nsec / 1e3;
 }
 
 int64_t get_current_time() {
@@ -94,9 +94,9 @@ int hwt_init(struct hwt *h) {
   return 1;
 }
 
-// accepts delay in seconds
+// accepts delay in microseconds
 void hwt_schedule(struct hwt *h, int64_t delay, int id) {
-  delay = delay * 1e6;
+  fprintf(stderr, "hwt_shedule (delay:%lld, id:%d)\n", delay, id);
   if (delay < MIN_TICK_INTERVAL) {
     delay = MIN_TICK_INTERVAL;
   }
@@ -104,12 +104,11 @@ void hwt_schedule(struct hwt *h, int64_t delay, int id) {
   struct hwt_timer *t = timer_new(id);
   t->expire = h->tick_time + delay;
 
-  fprintf(stderr, "Scheduling timer: %d\n", t->id);
   list_add_tail(&t->list, &h->pending->timers.list);
 }
 
 void hwt_add_timer(struct hwt *h, struct hwt_timer *t) {
- // fprintf(stderr, "Adding timer: %d\n", t->id);
+  // fprintf(stderr, "Adding timer: %d\n", t->id);
   int ticks = (t->expire - h->tick_time) / MIN_TICK_INTERVAL;
 
   if (ticks < 0) {
@@ -140,20 +139,26 @@ void hwt_add_timer(struct hwt *h, struct hwt_timer *t) {
 }
 
 int cascade(struct hwt *h, int n) {
-  // fprintf(stderr, "Cascading %d ...\n", n);
   int idx = (h->tick >> (n * SLOTS)) & SLOTS_MASK;
+  //fprintf(stderr, "cascade (level:%d, idx:%d)\n", n, idx);
 
   struct hwt_timer_list *a = h->tvec[n][idx];
   init_timer_list(&h->tvec[n][idx]);
 
   struct list_head *pos, *p;
   struct hwt_timer *ht;
-  list_for_each_safe(pos, p,&a->timers.list) {
+  list_for_each_safe(pos, p, &a->timers.list) {
     ht = list_entry(pos, struct hwt_timer, list);
     list_del(pos);
     hwt_add_timer(h, ht);
   }
   return idx;
+}
+
+void wheel_advance(struct hwt *h, int32_t idx) {
+  if (idx == 0 && (cascade(h, 1) == 0) && (cascade(h, 2) == 0)) {
+    cascade(h, 3);
+  }
 }
 
 void add_pending_timers(struct hwt *h) {
@@ -170,57 +175,39 @@ void add_pending_timers(struct hwt *h) {
   }
 }
 
+int run_framed_timers(struct hwt *h, int idx) {
+  struct hwt_timer_list *ready = h->tvec[0][idx];
+  init_timer_list(&h->tvec[0][idx]);
+
+  int cnt = 0;
+  struct list_head *pos = NULL;
+  struct hwt_timer *ht = NULL;
+  list_for_each(pos, &ready->timers.list) {
+    ht = list_entry(pos, struct hwt_timer, list);
+    fprintf(stderr, "framed_run (id:%d)\n", ht->id);
+    cnt += 1;
+  }
+
+  return cnt;
+}
+
 int hwt_tick(struct hwt *h, int diff) {
+  int ticks = diff / MIN_TICK_INTERVAL;
+  int rc = 0;
+
   add_pending_timers(h);
 
-  int ticks = diff / MIN_TICK_INTERVAL;
-
-
   for (; ticks > 0; ticks--) {
-    int idx = h->tick & SLOTS_MASK;
-    if (idx == 0 && (cascade(h, 1) == 0) && (cascade(h, 2) == 0)) {
-      cascade(h, 3);
-    }
+    int32_t idx = h->tick & SLOTS_MASK;
 
-    struct hwt_timer_list *ready = h->tvec[0][idx];
-    init_timer_list(&h->tvec[0][idx]);
-
-    struct list_head *pos = NULL;
-    struct hwt_timer *ht = NULL;
-    list_for_each(pos, &ready->timers.list) {
-      ht = list_entry(pos, struct hwt_timer, list);
-      int64_t curr_t = get_current_time();
-      fprintf(stderr, "Was: %lld, Diff: %lld, ID: %d\n", curr_t,
-              ht->expire - curr_t, ht->id);
-    }
+    wheel_advance(h, idx);
+    rc += run_framed_timers(h, idx);
 
     h->tick++;
     h->tick_time += MIN_TICK_INTERVAL;
   }
-
-  return ticks;
+  return rc;
 }
-
-/*
-void hwt_dump(struct hwt *h) {
-  struct hwt_timer *t = NULL;
-  TAILQ_FOREACH(t, &(h->pending), pending) {
-    fprintf(stderr, "type:pending expire: %lld, id: %d\n", t->expire, t->id);
-  }
-
-  int i, j;
-  for (i = 0; i < MAX_LEVEL; i++) {
-    for (j = 0; j < SLOTS; j++) {
-      struct hwt_timer *t = NULL;
-      TAILQ_FOREACH(t, &(h->tvec[i][j]), timers) {
-        fprintf(stderr, "type:scheduled, expire: %lld, id: %d\n", t->expire,
-                t->id);
-      }
-    }
-  }
-}
-*/
-
 
 int main() {
   struct hwt hwt;
@@ -229,27 +216,26 @@ int main() {
     perror("hwt");
   }
 
-  hwt_schedule(&hwt, 1, 11111);
-  hwt_schedule(&hwt, 4, 22222);
-  hwt_schedule(&hwt, 5, 22223);
-  hwt_schedule(&hwt, 7, 33333);
-  hwt_schedule(&hwt, 10, 44444);
-  hwt_schedule(&hwt, 15, 55555);
-  hwt_schedule(&hwt, 60, 66666);
-  hwt_schedule(&hwt, 100, 77777);
+  hwt_schedule(&hwt, to_micro(1, SECOND), 11111);
 
-  int64_t ti = 1e6 / 50;
+  hwt_schedule(&hwt, to_micro(2, SECOND) + to_micro(500, MILLISECOND), 22222);
+  /*
+  hwt_schedule(&hwt, to_micro(5, SECOND), 22223);
+  hwt_schedule(&hwt, to_micro(7, SECOND), 33333);
+  hwt_schedule(&hwt, to_micro(10, SECOND), 44444);
+  */
+
+  int64_t ti = 1e6 / 10;
   int64_t last = get_current_time();
   while (1) {
     int64_t curr = get_current_time();
-    fprintf(stderr, "Tick diff: %lld\n", curr - last);
-    if(hwt_tick(&hwt, curr - last)) {
-        last = curr;
+    if (hwt_tick(&hwt, curr - last)) {
+      hwt_schedule(&hwt, to_micro(4, SECOND), 31313);
     }
+    last = curr;
     int64_t cost = get_current_time() - curr;
     if (cost < ti) {
-        fprintf(stderr, "Sleep for: %lld\n", ti - cost);
-        usleep(ti-cost);
+      usleep(ti - cost);
     }
   }
 }
