@@ -7,7 +7,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#include "list.h"
+#include "wheel.h"
 
 #define MAX_LEVEL 5
 
@@ -15,20 +15,19 @@
 #define SLOTS_SIZE (1 << SLOTS)
 #define SLOTS_MASK (SLOTS_SIZE - 1)
 
-#define MIN_TICK_INTERVAL 1e3  // 1mcs
+#define MIN_TICK_INTERVAL 1e3 // 1mcs
 
-typedef enum time_resolution { MINUTE, SECOND, MILLISECOND, MICROSECOND } tr_e;
 
 int64_t to_micro(int64_t v, tr_e res) {
   switch (res) {
-    case MICROSECOND:
-      return v;
-    case MILLISECOND:
-      return v * 1e3;
-    case SECOND:
-      return v * 1e6;
-    case MINUTE:
-      return v * 1e6 * 60;
+  case MICROSECOND:
+    return v;
+  case MILLISECOND:
+    return v * 1e3;
+  case SECOND:
+    return v * 1e6;
+  case MINUTE:
+    return v * 1e6 * 60;
   }
 }
 
@@ -38,19 +37,11 @@ int64_t to_micros(struct timespec t) {
 
 int64_t get_current_time() {
   struct timespec monotime;
-  clock_gettime(CLOCK_MONOTONIC, &monotime);  // XXX retrun code
+  clock_gettime(CLOCK_MONOTONIC, &monotime); // XXX retrun code
   return to_micros(monotime);
 }
 
-struct hwt_timer {
-  struct list_head list;
-  int id;
-  int64_t expire;
-};
 
-struct hwt_timer_list {
-  struct hwt_timer timers;
-};
 
 void init_timer_list(struct hwt_timer_list **tl) {
   struct hwt_timer_list *tll = calloc(1, sizeof(struct hwt_timer_list));
@@ -77,7 +68,7 @@ struct hwt {
 
 int hwt_init(struct hwt *h) {
   struct timespec monotime;
-  clock_gettime(CLOCK_MONOTONIC, &monotime);  // XXX retrun code
+  clock_gettime(CLOCK_MONOTONIC, &monotime); // XXX retrun code
 
   h->tick_time = to_micros(monotime);
   h->start_time = h->tick_time;
@@ -87,7 +78,6 @@ int hwt_init(struct hwt *h) {
   int i, j;
   for (i = 0; i < MAX_LEVEL; i++) {
     for (j = 0; j < SLOTS_SIZE; j++) {
-      h->tvec[i][j] = NULL;
       init_timer_list(&h->tvec[i][j]);
     }
   }
@@ -96,7 +86,6 @@ int hwt_init(struct hwt *h) {
 
 // accepts delay in microseconds
 void hwt_schedule(struct hwt *h, int64_t delay, int id) {
-  fprintf(stderr, "hwt_shedule (delay:%lld, id:%d)\n", delay, id);
   if (delay < MIN_TICK_INTERVAL) {
     delay = MIN_TICK_INTERVAL;
   }
@@ -108,7 +97,7 @@ void hwt_schedule(struct hwt *h, int64_t delay, int id) {
 }
 
 void hwt_add_timer(struct hwt *h, struct hwt_timer *t) {
-  // fprintf(stderr, "Adding timer: %d\n", t->id);
+  // fprintf(stdout, "Adding timer: %d\n", t->id);
   int ticks = (t->expire - h->tick_time) / MIN_TICK_INTERVAL;
 
   if (ticks < 0) {
@@ -140,7 +129,6 @@ void hwt_add_timer(struct hwt *h, struct hwt_timer *t) {
 
 int cascade(struct hwt *h, int n) {
   int idx = (h->tick >> (n * SLOTS)) & SLOTS_MASK;
-  //fprintf(stderr, "cascade (level:%d, idx:%d)\n", n, idx);
 
   struct hwt_timer_list *a = h->tvec[n][idx];
   init_timer_list(&h->tvec[n][idx]);
@@ -152,6 +140,7 @@ int cascade(struct hwt *h, int n) {
     list_del(pos);
     hwt_add_timer(h, ht);
   }
+  free(a);
   return idx;
 }
 
@@ -168,11 +157,13 @@ void add_pending_timers(struct hwt *h) {
 
   struct list_head *pos, *p;
   struct hwt_timer *ht = NULL;
+
   list_for_each_safe(pos, p, &pending->timers.list) {
     ht = list_entry(pos, struct hwt_timer, list);
     list_del(pos);
     hwt_add_timer(h, ht);
   }
+  free(pending);
 }
 
 int run_framed_timers(struct hwt *h, int idx) {
@@ -180,14 +171,19 @@ int run_framed_timers(struct hwt *h, int idx) {
   init_timer_list(&h->tvec[0][idx]);
 
   int cnt = 0;
-  struct list_head *pos = NULL;
+  struct list_head *pos, *p;
   struct hwt_timer *ht = NULL;
-  list_for_each(pos, &ready->timers.list) {
+  list_for_each_safe(pos, p, &ready->timers.list) {
     ht = list_entry(pos, struct hwt_timer, list);
-    fprintf(stderr, "framed_run (id:%d)\n", ht->id);
+    list_del(pos);
+
+    free(ht);
     cnt += 1;
   }
+  free(ready);
 
+  if (cnt)
+    fprintf(stdout, "framed_run (emitted:%d) \n", cnt);
   return cnt;
 }
 
@@ -209,6 +205,8 @@ int hwt_tick(struct hwt *h, int diff) {
   return rc;
 }
 
+
+int ids = 0;
 int main() {
   struct hwt hwt;
 
@@ -218,19 +216,21 @@ int main() {
 
   hwt_schedule(&hwt, to_micro(1, SECOND), 11111);
 
-  hwt_schedule(&hwt, to_micro(2, SECOND) + to_micro(500, MILLISECOND), 22222);
-  /*
-  hwt_schedule(&hwt, to_micro(5, SECOND), 22223);
-  hwt_schedule(&hwt, to_micro(7, SECOND), 33333);
-  hwt_schedule(&hwt, to_micro(10, SECOND), 44444);
-  */
-
-  int64_t ti = 1e6 / 10;
+  int64_t ti = 1e6 / 100;
   int64_t last = get_current_time();
   while (1) {
     int64_t curr = get_current_time();
     if (hwt_tick(&hwt, curr - last)) {
-      hwt_schedule(&hwt, to_micro(4, SECOND), 31313);
+      hwt_schedule(&hwt, to_micro(2, SECOND) + to_micro(111, MICROSECOND), ids++);
+      hwt_schedule(&hwt, to_micro(1, SECOND) + to_micro(106, MICROSECOND), ids++);
+      hwt_schedule(&hwt, to_micro(1, SECOND) + to_micro(116, MICROSECOND), ids++);
+      hwt_schedule(&hwt, to_micro(1, SECOND) + to_micro(136, MICROSECOND), ids++);
+      hwt_schedule(&hwt, to_micro(10, SECOND) + to_micro(222, MICROSECOND), ids++);
+      hwt_schedule(&hwt, to_micro(12, SECOND) + to_micro(333, MICROSECOND), ids++);
+      hwt_schedule(&hwt, to_micro(321, SECOND) + to_micro(444, MICROSECOND), ids++);
+      hwt_schedule(&hwt, to_micro(54, SECOND) + to_micro(555, MICROSECOND), ids++);
+      hwt_schedule(&hwt, to_micro(11, SECOND) + to_micro(666, MICROSECOND), ids++);
+      hwt_schedule(&hwt, to_micro(12, SECOND) + to_micro(777, MICROSECOND), ids++);
     }
     last = curr;
     int64_t cost = get_current_time() - curr;
