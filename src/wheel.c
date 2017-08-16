@@ -5,18 +5,8 @@
 
 #include <stddef.h>
 #include <time.h>
-#include <unistd.h>
 
 #include "wheel.h"
-
-#define MAX_LEVEL 5
-
-#define SLOTS 6
-#define SLOTS_SIZE (1 << SLOTS)
-#define SLOTS_MASK (SLOTS_SIZE - 1)
-
-#define MIN_TICK_INTERVAL 1e3 // 1mcs
-
 
 int64_t to_micro(int64_t v, tr_e res) {
   switch (res) {
@@ -35,13 +25,11 @@ int64_t to_micros(struct timespec t) {
   return t.tv_sec * 1e6 + t.tv_nsec / 1e3;
 }
 
-int64_t get_current_time() {
+int64_t get_current_time(void) {
   struct timespec monotime;
   clock_gettime(CLOCK_MONOTONIC, &monotime); // XXX retrun code
   return to_micros(monotime);
 }
-
-
 
 void init_timer_list(struct hwt_timer_list **tl) {
   struct hwt_timer_list *tll = calloc(1, sizeof(struct hwt_timer_list));
@@ -56,15 +44,6 @@ struct hwt_timer *timer_new(int id) {
   t->expire = 0;
   return t;
 }
-
-struct hwt {
-  int64_t tick_time;
-  int64_t start_time;
-  int64_t tick;
-
-  struct hwt_timer_list *tvec[MAX_LEVEL][SLOTS_SIZE];
-  struct hwt_timer_list *pending;
-};
 
 int hwt_init(struct hwt *h) {
   struct timespec monotime;
@@ -203,39 +182,4 @@ int hwt_tick(struct hwt *h, int diff) {
     h->tick_time += MIN_TICK_INTERVAL;
   }
   return rc;
-}
-
-
-int ids = 0;
-int main() {
-  struct hwt hwt;
-
-  if (!hwt_init(&hwt)) {
-    perror("hwt");
-  }
-
-  hwt_schedule(&hwt, to_micro(1, SECOND), 11111);
-
-  int64_t ti = 1e6 / 100;
-  int64_t last = get_current_time();
-  while (1) {
-    int64_t curr = get_current_time();
-    if (hwt_tick(&hwt, curr - last)) {
-      hwt_schedule(&hwt, to_micro(2, SECOND) + to_micro(111, MICROSECOND), ids++);
-      hwt_schedule(&hwt, to_micro(1, SECOND) + to_micro(106, MICROSECOND), ids++);
-      hwt_schedule(&hwt, to_micro(1, SECOND) + to_micro(116, MICROSECOND), ids++);
-      hwt_schedule(&hwt, to_micro(1, SECOND) + to_micro(136, MICROSECOND), ids++);
-      hwt_schedule(&hwt, to_micro(10, SECOND) + to_micro(222, MICROSECOND), ids++);
-      hwt_schedule(&hwt, to_micro(12, SECOND) + to_micro(333, MICROSECOND), ids++);
-      hwt_schedule(&hwt, to_micro(321, SECOND) + to_micro(444, MICROSECOND), ids++);
-      hwt_schedule(&hwt, to_micro(54, SECOND) + to_micro(555, MICROSECOND), ids++);
-      hwt_schedule(&hwt, to_micro(11, SECOND) + to_micro(666, MICROSECOND), ids++);
-      hwt_schedule(&hwt, to_micro(12, SECOND) + to_micro(777, MICROSECOND), ids++);
-    }
-    last = curr;
-    int64_t cost = get_current_time() - curr;
-    if (cost < ti) {
-      usleep(ti - cost);
-    }
-  }
 }
