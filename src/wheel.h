@@ -13,10 +13,18 @@
 
 typedef enum time_resolution { MINUTE, SECOND, MILLISECOND, MICROSECOND } tr_e;
 
+struct hwt_timer;
+
+/* hwt_timer callback function type
+ * Called on timer run.
+ */
+typedef void(timer_cb)(struct hwt_timer *);
+
 struct hwt_timer {
   struct list_head list;
   const char *id;
   int64_t expire;
+  timer_cb *cb;
 };
 
 struct hwt_timer_list {
@@ -34,7 +42,7 @@ struct hwt {
 
 int64_t get_current_time(void);
 int hwt_init(struct hwt *h);
-void hwt_schedule(struct hwt *h, int64_t delay, const char *id);
+void hwt_schedule(struct hwt *h, int64_t delay, const char *id, timer_cb *cb);
 int64_t to_micro(int64_t v, tr_e res);
 int hwt_tick(struct hwt *h, int diff);
 

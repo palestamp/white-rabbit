@@ -1,4 +1,3 @@
-
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -21,6 +20,8 @@ typedef struct {
     uv_write_t req;
     uv_buf_t buf;
 } write_req_t;
+
+void timer_dump(struct hwt_timer *t) { fprintf(stdout, "emit:%s\n", t->id); }
 
 void free_write_req(uv_write_t *req) {
     write_req_t *wr = (write_req_t *)req;
@@ -86,7 +87,7 @@ void echo_read(uv_stream_t *client, ssize_t nread, const uv_buf_t *buf) {
         uv_mutex_lock(&wheel_mtx);
         struct input_timer it;
         parse_timer(&it, buf->base);
-        hwt_schedule(&ghwt, to_micro(it.tbase, it.res), it.id);
+        hwt_schedule(&ghwt, to_micro(it.tbase, it.res), it.id, timer_dump);
         uv_mutex_unlock(&wheel_mtx);
 
         req->buf = uv_buf_init(buf->base, nread);
