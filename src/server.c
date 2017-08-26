@@ -1,9 +1,9 @@
+#include <ctype.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-#include <ctype.h>
 #include <uv.h>
 
 #include "wheel.h"
@@ -61,21 +61,17 @@ struct input_timer *parse_timer(struct input_timer *it, const char *input) {
     char *id = malloc(sizeof(char) * (c - input + 1));
     strncpy(id, input, c - input);
     id[c - input] = '\0';
+
+    char *end = NULL;
     it->id = id;
-
-    c++;
-    char *c2 = c;
-    for (; *c2 && isdigit(*c2); c2++)
-        ;
-
-    char *delay = malloc(sizeof(char) * (c2 - c + 1));
-    strncpy(delay, c, c2 - c);
-    delay[c2 - c] = '\0';
-
-    fprintf(stderr, "accept:%s:%s\n", id, delay);
-
-    it->tbase = atoll(delay);
     it->res = MILLISECOND;
+    it->tbase = strtoll(c, &end, 10);
+
+    if (end != NULL && *end != '\n') {
+        fprintf(stderr, "err:[id:%s, delay_unparsed:%s]\n", it->id, end);
+        free(it->id);
+        return NULL;
+    }
 
     return it;
 }
@@ -84,11 +80,14 @@ void echo_read(uv_stream_t *client, ssize_t nread, const uv_buf_t *buf) {
     if (nread > 0) {
         write_req_t *req = (write_req_t *)malloc(sizeof(write_req_t));
 
-        uv_mutex_lock(&wheel_mtx);
         struct input_timer it;
-        parse_timer(&it, buf->base);
-        hwt_schedule(&ghwt, to_micro(it.tbase, it.res), it.id, timer_dump);
-        uv_mutex_unlock(&wheel_mtx);
+        struct input_timer *it_ptr;
+        if ((it_ptr = parse_timer(&it, buf->base)) != NULL) {
+            uv_mutex_lock(&wheel_mtx);
+            hwt_schedule(&ghwt, to_micro(it_ptr->tbase, it_ptr->res), it_ptr->id, timer_dump);
+            uv_mutex_unlock(&wheel_mtx);
+            fprintf(stderr, "accept:[id:%s, delay:%lld]\n", it_ptr->id, it_ptr->tbase);
+        }
 
         req->buf = uv_buf_init(buf->base, nread);
         uv_write((uv_write_t *)req, client, &req->buf, 1, echo_write);
