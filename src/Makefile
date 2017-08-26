@@ -4,11 +4,11 @@ OPTIMIZATION?=-O2
 OPT=$(OPTIMIZATION)
 
 STD=-std=c99 -pedantic
-WARN=-Wall -Werror -W
+WARN=-Wall -Werror -W -Wno-unused-parameter
 
 FINAL_CFLAGS=$(STD) $(WARN) $(OPT) $(CFLAGS)
 FINAL_LDFLAGS=$(LDFLAGS)
-FINAL_LIBS=-lm
+FINAL_LIBS=-lm -luv
 
 CCCOLOR="\033[34m"
 LINKCOLOR="\033[34;1m"
@@ -36,7 +36,7 @@ all: $(WR_SERVER_NAME)
 
 # white-rabbit server
 $(WR_SERVER_NAME): $(WR_SERVER_OBJ)
-	$(WR_LD) -o $@ $^ $(FINAL_LIBS)
+	$(WR_LD) $(OPTIMIZATION) $(INCLUDES) $(LD_PATH) -o $@ $^ $(FINAL_LIBS)
 
 %.o: %.c
 	$(WR_CC) -c $<

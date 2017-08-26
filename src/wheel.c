@@ -38,7 +38,7 @@ void init_timer_list(struct hwt_timer_list **tl) {
   *tl = tll;
 }
 
-struct hwt_timer *timer_new(int id) {
+struct hwt_timer *timer_new(const char *id) {
   struct hwt_timer *t = calloc(1, sizeof(struct hwt_timer));
   t->id = id;
   t->expire = 0;
@@ -64,7 +64,7 @@ int hwt_init(struct hwt *h) {
 }
 
 // accepts delay in microseconds
-void hwt_schedule(struct hwt *h, int64_t delay, int id) {
+void hwt_schedule(struct hwt *h, int64_t delay, const char *id) {
   if (delay < MIN_TICK_INTERVAL) {
     delay = MIN_TICK_INTERVAL;
   }
@@ -154,6 +154,7 @@ int run_framed_timers(struct hwt *h, int idx) {
   struct hwt_timer *ht = NULL;
   list_for_each_safe(pos, p, &ready->timers.list) {
     ht = list_entry(pos, struct hwt_timer, list);
+    fprintf(stdout, "emit:%s\n", ht->id);
     list_del(pos);
 
     free(ht);
@@ -161,8 +162,6 @@ int run_framed_timers(struct hwt *h, int idx) {
   }
   free(ready);
 
-  if (cnt)
-    fprintf(stdout, "framed_run (emitted:%d) \n", cnt);
   return cnt;
 }
 
