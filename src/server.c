@@ -21,7 +21,7 @@ typedef struct {
     uv_buf_t buf;
 } write_req_t;
 
-void timer_dump(struct hwt_timer *t) { fprintf(stdout, "emit:%s\n", t->id); }
+void timer_dump(struct hwt_timer *t) { fprintf(stdout, "emit:[id:%s]\n", t->id); }
 
 void free_write_req(uv_write_t *req) {
     write_req_t *wr = (write_req_t *)req;
